@@ -17,32 +17,32 @@ public class AssemblyInstruction {
 
     public static class Builder {
         private Class<?> klass;
-        private ConstructionScope scope = ConstructionScope.SINGLETON;
+        private ConstructionScope scope;
         private List<AssemblyParameter> assemblyParameters = new ArrayList<AssemblyParameter>();
 
         public Builder(Class<?> klass) {
             this.klass = klass;
         }
 
-        public Builder s(ConstructionScope scope) {
+        public Builder scope(ConstructionScope scope) {
             this.scope = scope;
             return this;
         }
 
         public Builder val(String name, Object object) {
-            AssemblyParameter ap = new AssemblyParameter(name, object);
+            var ap = AssemblyParameter.value(name, object);
             this.assemblyParameters.add(ap);
             return this;
         }
 
         public Builder ref(String name, Class<?> klass) {
-            AssemblyParameter ap = new AssemblyParameter(name, klass);
+            var ap = AssemblyParameter.reference(name, klass);
             this.assemblyParameters.add(ap);
             return this;
         }
 
         public Builder auto(String name) {
-            AssemblyParameter ap = new AssemblyParameter(name);
+            var ap = AssemblyParameter.autoReference(name);
             this.assemblyParameters.add(ap);
             return this;
         }

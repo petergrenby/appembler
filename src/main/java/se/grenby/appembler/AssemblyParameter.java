@@ -1,8 +1,9 @@
 package se.grenby.appembler;
 
 class AssemblyParameter {
+
     public enum Type {
-        VALUE, REFERENCE, AUTO_WIRE
+        VALUE, REFERENCE, AUTO_REFERENCE
     }
 
     private final String name;
@@ -10,33 +11,23 @@ class AssemblyParameter {
     private final Class<?> klass;
     private final Object object;
 
-    public AssemblyParameter(String name, Object object) {
-        this.name = name;
-        this.type = Type.VALUE;
-        this.klass = null;
-        this.object = object;
+    public static AssemblyParameter value(String name, Object object) {
+        return new AssemblyParameter(name, Type.VALUE, null, object);
     }
 
-//    public AssemblyParameter(Object object) {
-//        this(null, object);
-//    }
+    public static AssemblyParameter reference(String name, Class<?> klass) {
+        return new AssemblyParameter(name, Type.REFERENCE, klass, null);
+    }
 
-    public AssemblyParameter(String name, Class<?> klass) {
+    public static AssemblyParameter autoReference(String name) {
+        return new AssemblyParameter(name, Type.AUTO_REFERENCE, null, null);
+    }
+
+    private AssemblyParameter(String name, Type type, Class<?> klass, Object object) {
         this.name = name;
-        this.type = Type.REFERENCE;
+        this.type = type;
         this.klass = klass;
-        this.object = null;
-    }
-
-//    public AssemblyParameter(Class<?> klass) {
-//        this(null, klass);
-//    }
-
-    public AssemblyParameter(String name) {
-        this.name = name;
-        this.type = Type.AUTO_WIRE;
-        this.klass = null;
-        this.object = null;
+        this.object = object;
     }
 
     public String getName() {

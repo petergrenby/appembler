@@ -1,11 +1,15 @@
 package se.grenby.appembler;
 
+import se.grenby.appembler.exception.*;
+
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Parameter;
 import java.util.*;
 
 public class Appembler {
+
+    private final ConstructionScope scope;
 
     private static class ConstructionInstruction {
         final Constructor<?> constructor;
@@ -24,6 +28,11 @@ public class Appembler {
     private final ThreadLocal<Map<Class<?>, Object>> threadLocalInstances = new ThreadLocal<>();
 
     public Appembler() {
+        this.scope = ConstructionScope.SINGLETON;
+    }
+
+    public Appembler(ConstructionScope scope) {
+        this.scope = scope;
     }
 
     public void instruction(AssemblyInstruction assemblyInstruction) {
@@ -45,18 +54,18 @@ public class Appembler {
                 }
                 if (correctParameters == size) {
                     constructionInstructions.add(new ConstructionInstruction(c,
-                            assemblyInstruction.getScope(),
+                            assemblyInstruction.getScope() == null ? scope : assemblyInstruction.getScope(),
                             assemblyParameters.toArray(new AssemblyParameter[assemblyParameters.size()])));
                 }
             }
         }
 
         if (constructionInstructions.size() == 0) {
-            throw new RuntimeException("No matching constructor found.");
+            throw new NoMatchingConstructorException("No matching constructor found.");
         } else if (constructionInstructions.size() == 1) {
             constructors.put(assemblyInstruction.getKlass(), constructionInstructions.get(0));
         } else {
-            throw new RuntimeException("Multiple matching constructors found. Failed to match assembly instruction to a constructor.");
+            throw new AmbiguousConstructorMatchingException("Multiple matching constructors found. Failed to match assembly instruction to a constructor.");
         }
     }
 
@@ -75,36 +84,36 @@ public class Appembler {
                         correctParameter = true;
                     }
                     break;
-                case AUTO_WIRE:
+                case AUTO_REFERENCE:
                     correctParameter = true;
                     break;
                 default:
-                    throw new IllegalStateException("What is going on?!?");
+                    throw new RuntimeException("Unsupported assembly parameter type found: " + ap.getType());
             }
         }
 
         return correctParameter;
     }
 
-    public <T> T assemble(Class<T> klass) throws IllegalAccessException, InvocationTargetException, InstantiationException {
+    public <T> T assemble(Class<T> klass) {
         return assemble(klass, new HashSet<>());
     }
 
-    private <T> T assemble(Class<T> klass, Set<Class<?>> touched) throws IllegalAccessException, InvocationTargetException, InstantiationException {
+    private <T> T assemble(Class<T> klass, Set<Class<?>> touched) {
         if (touched.contains(klass)) {
-            throw new IllegalStateException("Cyclic dependencies are not allowed. Class " + klass.getName() + " was found at twice.");
+            throw new CyclicDependencyException("Cyclic dependencies are not allowed. Class " + klass.getName() + " was found at twice.");
         } else {
             touched.add(klass);
         }
 
         ConstructionInstruction instruction = retrieveConstructionInstruction(klass);
         if (instruction == null) {
-            throw new RuntimeException("No assembly instructions have been supplied for class " + klass + ".");
+            throw new NoAssemblyInstructionException("No assembly instructions have been supplied for class " + klass + ".");
         }
 
         switch (instruction.scope) {
             case PROTOTYPE: {
-                return construct(klass, instruction, touched);
+                return construct(instruction, touched);
             }
             case THREAD_LOCAL: {
                 return constructOrRetrieve(klass, instruction, threadLocalInstances.get(), touched);
@@ -113,7 +122,7 @@ public class Appembler {
                 return constructOrRetrieve(klass, instruction, instances, touched);
             }
             default: {
-                throw new IllegalArgumentException("ConstructionScope " + constructors.get(klass).scope + " not handled!");
+                throw new RuntimeException("ConstructionScope " + constructors.get(klass).scope + " not handled!");
             }
         }
     }
@@ -133,10 +142,10 @@ public class Appembler {
         return instruction;
     }
 
-    private <T> T constructOrRetrieve(Class<T> klass, ConstructionInstruction instruction, Map<Class<?>, Object> map, Set<Class<?>> touched) throws IllegalAccessException, InvocationTargetException, InstantiationException {
+    private <T> T constructOrRetrieve(Class<T> klass, ConstructionInstruction instruction, Map<Class<?>, Object> map, Set<Class<?>> touched)  {
         T instance;
         if (map.get(klass) == null) {
-            instance = construct(klass, instruction, touched);
+            instance = construct(instruction, touched);
             map.put(klass, instance);
         } else {
             instance = (T) map.get(klass);
@@ -144,7 +153,7 @@ public class Appembler {
         return instance;
     }
 
-    private <T> T construct(Class<T> klass, ConstructionInstruction instruction, Set<Class<?>> touched) throws IllegalAccessException, InvocationTargetException, InstantiationException {
+    private <T> T construct(ConstructionInstruction instruction, Set<Class<?>> touched) {
         var list = new ArrayList<>();
         int i = 0;
         for (AssemblyParameter p : instruction.assemblyParameters) {
@@ -152,16 +161,19 @@ public class Appembler {
                 list.add(p.getObject());
             } else if (p.getType() == AssemblyParameter.Type.REFERENCE) {
                 list.add(assemble(p.getKlass(), touched));
-            } else if (p.getType() == AssemblyParameter.Type.AUTO_WIRE) {
-                java.lang.reflect.Parameter rp = instruction.constructor.getParameters()[i];
-                Class<?> klass2 = rp.getType();
-                list.add(assemble(klass2, touched));
+            } else if (p.getType() == AssemblyParameter.Type.AUTO_REFERENCE) {
+                Parameter rp = instruction.constructor.getParameters()[i];
+                list.add(assemble(rp.getType(), touched));
             }
             i++;
         }
 
         System.out.println(list);
-        return (T) instruction.constructor.newInstance(list.toArray());
+        try {
+            return (T) instruction.constructor.newInstance(list.toArray());
+        } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+            throw new ConstructionFailedException("Construction of class " + instruction.constructor.getDeclaringClass() + " failed during assembly of object. ", e);
+        }
     }
 
 }
